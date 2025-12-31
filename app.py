@@ -1,12 +1,15 @@
 import uuid
-from flask import Flask, request, jsonify, render_template, abort
-from datetime import datetime, timedelta
-from config import Config
-from models import db, Paste
 import os
-from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timedelta
+
+from flask import Flask, request, jsonify, render_template, abort
 from sqlalchemy import text
 from dotenv import load_dotenv
+
+from models import db, Paste
+
+
+# ---------------- App Setup ----------------
 load_dotenv()
 
 app = Flask(__name__)
@@ -14,11 +17,14 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["TEST_MODE"] = os.environ.get("TEST_MODE") == "1"
 
-
 db.init_app(app)
 
+# Safe DB init (Render-friendly)
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+    except Exception as e:
+        print("DB init error:", e)
 
 
 # ---------- Utility: current time ----------
@@ -37,17 +43,14 @@ def healthz():
         db.session.execute(text("SELECT 1"))
         return jsonify({"ok": True})
     except Exception as e:
-        print("Health check db error:", e)
-        return jsonify({"ok": False, "error" : str(e)})
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
-# ---------- Create Paste (API) ----------
+# ---------- Create Paste (API + UI) ----------
 @app.route("/api/pastes", methods=["POST"])
 def create_paste():
-    # Try JSON first (API)
     data = request.get_json(silent=True)
 
-    # If JSON not present → HTML form
     if data is None:
         data = {
             "content": request.form.get("content"),
@@ -55,30 +58,18 @@ def create_paste():
             "max_views": request.form.get("max_views"),
         }
 
-    # Validate content
     content = data.get("content")
     if not content or not isinstance(content, str):
         return jsonify({"error": "Invalid content"}), 400
 
-    # Parse optional fields
     ttl = data.get("ttl_seconds")
     max_views = data.get("max_views")
 
-    if ttl:
-        try:
-            ttl = int(ttl)
-        except ValueError:
-            return jsonify({"error": "Invalid ttl_seconds"}), 400
-    else:
-        ttl = None
-
-    if max_views:
-        try:
-            max_views = int(max_views)
-        except ValueError:
-            return jsonify({"error": "Invalid max_views"}), 400
-    else:
-        max_views = None
+    try:
+        ttl = int(ttl) if ttl else None
+        max_views = int(max_views) if max_views else None
+    except ValueError:
+        return jsonify({"error": "Invalid ttl or max_views"}), 400
 
     paste_id = uuid.uuid4().hex[:8]
     now = get_current_time()
@@ -88,7 +79,8 @@ def create_paste():
         id=paste_id,
         content=content,
         expires_at=expires_at,
-        max_views=max_views
+        max_views=max_views,
+        view_count=0   # 🔥 CRITICAL FIX
     )
 
     db.session.add(paste)
@@ -98,11 +90,11 @@ def create_paste():
         paste_url = f"{request.host_url}p/{paste_id}"
         return render_template("created.html", paste_url=paste_url)
 
-    # If API → JSON response
     return jsonify({
         "id": paste_id,
         "url": f"{request.host_url}p/{paste_id}"
     }), 201
+
 
 # ---------- Fetch Paste (API) ----------
 @app.route("/api/pastes/<paste_id>", methods=["GET"])
@@ -119,12 +111,17 @@ def fetch_paste_api(paste_id):
     if paste.max_views is not None and paste.view_count >= paste.max_views:
         return jsonify({"error": "View limit exceeded"}), 404
 
+    if paste.view_count is None:
+        paste.view_count = 0
+
     paste.view_count += 1
     db.session.commit()
 
-    remaining_views = None
-    if paste.max_views is not None:
-        remaining_views = max(paste.max_views - paste.view_count, 0)
+    remaining_views = (
+        max(paste.max_views - paste.view_count, 0)
+        if paste.max_views is not None
+        else None
+    )
 
     return jsonify({
         "content": paste.content,
@@ -139,28 +136,26 @@ def view_paste(paste_id):
     paste = Paste.query.get(paste_id)
     now = get_current_time()
 
-    # Not found
     if not paste:
         abort(404)
 
-    # TTL expired
     if paste.expires_at and now >= paste.expires_at:
         db.session.delete(paste)
         db.session.commit()
         abort(404)
 
-    # Max views exceeded
     if paste.max_views is not None and paste.view_count >= paste.max_views:
         db.session.delete(paste)
         db.session.commit()
         abort(404)
 
-    # Increase view count
+    if paste.view_count is None:
+        paste.view_count = 0
+
     paste.view_count += 1
     db.session.commit()
 
     return render_template("view.html", content=paste.content)
-
 
 
 # ---------- Create Paste UI ----------
@@ -169,11 +164,16 @@ def home():
     return render_template("create.html")
 
 
-# ---------- 404 ----------
+# ---------- Error Handlers ----------
 @app.errorhandler(404)
 def not_found(e):
     return render_template("404.html"), 404
 
+@app.errorhandler(500)
+def server_error(e):
+    return render_template("500.html"), 500
 
+
+# ---------- Run ----------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
