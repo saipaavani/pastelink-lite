@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paste Created</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #43cea2, #185a9d);
+      display: flex;
+      align-items: center;
+    }
+    .success-card {
+      background: white;
+      border-radius: 20px;
+      padding: 35px;
+    }
+    input {
+      cursor: pointer;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="success-card shadow-lg mx-auto text-center" style="max-width: 600px;">
+    <h2 class="text-success fw-bold mb-3">🎉 Paste Created!</h2>
+    <p class="text-muted mb-3">Copy & share this secure link</p>
+
+    <input type="text" class="form-control text-center mb-3"
+           value="{{ paste_url }}" readonly onclick="this.select()">
+
+    <small class="text-muted d-block mb-4">
+      This paste may expire based on your settings.
+    </small>
+
+    <a href="/" class="btn btn-outline-primary w-100">
+      ➕ Create Another Paste
+    </a>
+  </div>
+</div>
+
+</body>
+</html>
