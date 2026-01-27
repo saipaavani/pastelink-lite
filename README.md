@@ -1,4 +1,4 @@
-👉 Hosted URL: 
+👉🏻Hosted URL: 
 https://pastelink-lite.onrender.com
 
 ✨ Features
